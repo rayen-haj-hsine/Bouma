@@ -233,12 +233,14 @@ impl Bouma {
                     self.active_search = Some(query);
                     // Immediately update current-dir view (0 ms)
                     self.refresh_display();
-                    // Schedule debounced recursive search (200 ms)
+                    // Adaptive debounce: wider scans (drive root) get more breathing room
+                    let path_depth = self.current_path.components().count();
+                    let delay_ms: u64 = if path_depth <= 2 { 350 } else { 200 };
                     self.search_generation += 1;
                     let gen = self.search_generation;
                     Task::perform(
                         async move {
-                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                             gen
                         },
                         Message::SearchDebounced,
@@ -248,6 +250,7 @@ impl Bouma {
                     Task::none()
                 }
             }
+
 
             Message::SearchDebounced(gen) => {
                 // Discard stale debounce fires from earlier keystrokes
@@ -483,14 +486,29 @@ impl Bouma {
         let query_text = self.search_text.clone();
         let type_filter = self.type_filter;
 
+        // Adaptive depth: the shallower we are in the filesystem, the deeper we need to scan.
+        // Drive root (C:\)  → depth 8  (files can be at C:\Users\rayen\Desktop\sub\id.txt = 4 deep)
+        // 1-2 components    → depth 7
+        // 3-4 components    → depth 6
+        // deeper            → depth 5
+        let path_depth = root.components().count();
+        let max_depth: usize = match path_depth {
+            0 | 1 => 8,
+            2 | 3 => 7,
+            4 | 5 => 6,
+            _ => 5,
+        };
+
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let query = SearchQuery::parse(&query_text).ok()?;
-                    // Scan current folder + subfolders up to 3 levels deep in parallel (jwalk)
+                    // Parallel recursive scan via jwalk
                     let recursive_entries =
-                        bouma_filesystem::walk_directory_recursive(&root, 3).ok()?;
-                    Some(bouma_search::search(&recursive_entries, &query, type_filter))
+                        bouma_filesystem::walk_directory_recursive(&root, max_depth).ok()?;
+                    let results = bouma_search::search(&recursive_entries, &query, type_filter);
+                    // Cap at 2000 results to keep the UI responsive on wide drive scans
+                    Some(results.into_iter().take(2000).collect::<Vec<_>>())
                 })
                 .await
                 .ok()
@@ -500,6 +518,7 @@ impl Bouma {
             Message::SearchResultsLoaded,
         )
     }
+
 
     /// Refreshes `display_entries` from `all_entries` with current sort + search + type filter.
     fn refresh_display(&mut self) {
