@@ -22,13 +22,13 @@ pub struct Bouma {
     /// All entries in the current directory (unsorted/unfiltered source of truth).
     all_entries: Vec<FileEntry>,
 
-    /// Entries after sorting and optional search filtering.
+    /// Entries after sorting and search filtering.
     display_entries: Vec<FileEntry>,
 
     /// Currently selected entry index (into `display_entries`).
     selected_index: Option<usize>,
 
-    /// Whether directory contents are being loaded.
+    /// Whether directory contents or search results are being loaded.
     is_loading: bool,
 
     /// Current error message (if any).
@@ -146,9 +146,25 @@ impl Bouma {
                 self.is_loading = false;
                 self.error = None;
                 self.selected_index = None;
-                self.search_text.clear();
-                self.active_search = None;
+
+                // PRESERVE SEARCH TEXT across folder navigation!
+                if !self.search_text.is_empty() {
+                    if let Ok(query) = SearchQuery::parse(&self.search_text) {
+                        self.active_search = Some(query);
+                        return self.trigger_recursive_search();
+                    }
+                }
+
                 self.refresh_display();
+                Task::none()
+            }
+
+            Message::SearchResultsLoaded(matches) => {
+                self.is_loading = false;
+                let mut sorted = matches;
+                sort_entries(&mut sorted, self.sort_field, self.sort_order);
+                self.display_entries = sorted;
+                self.selected_index = None;
                 Task::none()
             }
 
@@ -203,18 +219,22 @@ impl Bouma {
                 self.search_text = text;
                 if self.search_text.is_empty() {
                     self.active_search = None;
+                    self.refresh_display();
+                    Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
+                    self.trigger_recursive_search()
+                } else {
+                    self.refresh_display();
+                    Task::none()
                 }
-                self.refresh_display();
-                Task::none()
             }
 
             Message::SearchSubmit => {
                 if !self.search_text.is_empty() {
                     if let Ok(query) = SearchQuery::parse(&self.search_text) {
                         self.active_search = Some(query);
-                        self.refresh_display();
+                        return self.trigger_recursive_search();
                     }
                 }
                 Task::none()
@@ -343,7 +363,6 @@ impl Bouma {
                 if let Err(e) = result {
                     self.error = Some(e);
                 }
-                // Reload current directory to show changes
                 self.load_directory_async(self.current_path.clone())
             }
         }
@@ -418,6 +437,31 @@ impl Bouma {
             Ok((entries, diag)) => Message::DirectoryLoaded(path_clone.clone(), entries, diag),
             Err(err) => Message::DirectoryError(err),
         })
+    }
+
+    /// Triggers async recursive search on subfolders.
+    fn trigger_recursive_search(&mut self) -> Task<Message> {
+        let root = self.current_path.clone();
+        let query_text = self.search_text.clone();
+
+        self.is_loading = true;
+
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let query = SearchQuery::parse(&query_text).ok()?;
+                    // Scan current folder + subfolders up to 5 levels deep in parallel (jwalk)
+                    let recursive_entries =
+                        bouma_filesystem::walk_directory_recursive(&root, 5).ok()?;
+                    Some(bouma_search::search(&recursive_entries, &query))
+                })
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+            },
+            Message::SearchResultsLoaded,
+        )
     }
 
     /// Refreshes `display_entries` from `all_entries` with current sort + search.

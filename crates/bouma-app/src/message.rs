@@ -31,6 +31,9 @@ pub enum Message {
     /// Directory contents loaded successfully with timing diagnostics.
     DirectoryLoaded(PathBuf, Vec<FileEntry>, OperationDiagnostics),
 
+    /// Recursive search results loaded.
+    SearchResultsLoaded(Vec<FileEntry>),
+
     /// Directory loading failed.
     DirectoryError(String),
 

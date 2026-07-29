@@ -11,3 +11,4 @@ bouma-core = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
 trash = "5"
+jwalk = { workspace = true }
