@@ -9,11 +9,48 @@
 //! |   2   | Query is a **whole word** in stem | `user_id.txt`, `emp-id`   |
 //! |   3   | Stem **contains** query anywhere  | `video`, `audio`, `valid` |
 //!
-//! Within each tier, files are ranked before directories.
+//! All matching is **case-insensitive**. Within each tier, files rank before directories.
 
 use bouma_core::entry::{EntryKind, FileEntry, FileTypeFilter};
 
 use crate::query::{QueryMatcher, SearchQuery};
+
+/// Like [`search`] but returns `(relevance_score, entry)` pairs so callers can group results
+/// by tier. Score 0 = best (exact match), 3 = worst (loose substring).
+pub fn search_scored(
+    entries: &[FileEntry],
+    query: &SearchQuery,
+    type_filter: FileTypeFilter,
+) -> Vec<(u8, FileEntry)> {
+    if !matches!(query.matcher, QueryMatcher::Substring(_)) {
+        return entries
+            .iter()
+            .filter(|e| type_filter.matches(e) && query.matches(&e.display_name()))
+            .map(|e| (3u8, e.clone()))
+            .collect();
+    }
+
+    let q = match &query.matcher {
+        QueryMatcher::Substring(s) => s.clone(),
+        _ => unreachable!(),
+    };
+
+    let mut scored: Vec<(u8, FileEntry)> = entries
+        .iter()
+        .filter(|e| type_filter.matches(e) && query.matches(&e.display_name()))
+        .map(|e| (relevance_score(e, &q), e.clone()))
+        .collect();
+
+    scored.sort_by(|(sa, a), (sb, b)| {
+        sa.cmp(sb).then_with(|| {
+            let a_is_dir = matches!(a.kind, EntryKind::Directory);
+            let b_is_dir = matches!(b.kind, EntryKind::Directory);
+            a_is_dir.cmp(&b_is_dir)
+        })
+    });
+
+    scored
+}
 
 /// Returns entries that match `query` and `type_filter`, sorted by relevance.
 ///

@@ -8,5 +8,5 @@
 pub mod engine;
 pub mod query;
 
-pub use engine::search;
+pub use engine::{search, search_scored};
 pub use query::SearchQuery;

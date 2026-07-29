@@ -9,6 +9,21 @@ use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::SortField;
 use std::path::PathBuf;
 
+/// Statistics emitted when a recursive search scan completes.
+#[derive(Debug, Clone)]
+pub struct SearchStats {
+    /// The text that was searched.
+    pub query: String,
+    /// Total files/folders scanned during recursive walk.
+    pub total_scanned: usize,
+    /// How many results were found per tier (index = tier 0..=3).
+    pub tier_counts: [usize; 4],
+    /// How long the full scan took in milliseconds.
+    pub scan_ms: u64,
+    /// Max depth used for this scan.
+    pub depth_used: usize,
+}
+
 /// Application-level messages.
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -32,7 +47,8 @@ pub enum Message {
     DirectoryLoaded(PathBuf, Vec<FileEntry>, OperationDiagnostics),
 
     /// Recursive search results loaded.
-    SearchResultsLoaded(Vec<FileEntry>),
+    /// Carries (tier, Vec<FileEntry>) groups (tier 0 = exact, 3 = partial) + scan stats.
+    SearchResultsLoaded(Vec<(u8, Vec<FileEntry>)>, SearchStats),
 
     /// Directory loading failed.
     DirectoryError(String),

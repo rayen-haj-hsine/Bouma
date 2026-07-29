@@ -1,6 +1,6 @@
 //! Main application state and logic (the Elm "Model" + "Update").
 
-use crate::message::Message;
+use crate::message::{Message, SearchStats};
 use crate::theme;
 use crate::views;
 
@@ -67,6 +67,12 @@ pub struct Bouma {
 
     /// Path copied to internal buffer (for Copy / Paste).
     clipboard_copy: Option<PathBuf>,
+
+    /// Grouped search results (tier 0..=3) — Some only when a search is active.
+    search_groups: Option<Vec<(u8, Vec<FileEntry>)>>,
+
+    /// Stats from the last completed recursive scan — shown in the transparency panel.
+    search_stats: Option<SearchStats>,
 }
 
 impl Bouma {
@@ -92,6 +98,8 @@ impl Bouma {
             current_operation: None,
             current_diagnostics: None,
             clipboard_copy: None,
+            search_groups: None,
+            search_stats: None,
             settings,
         };
 
@@ -167,11 +175,15 @@ impl Bouma {
                 Task::none()
             }
 
-            Message::SearchResultsLoaded(matches) => {
+            Message::SearchResultsLoaded(groups, stats) => {
                 self.is_loading = false;
-                let mut sorted = matches;
-                sort_entries(&mut sorted, self.sort_field, self.sort_order);
-                self.display_entries = sorted;
+                // Flatten groups into display_entries (for status bar / fallback)
+                self.display_entries = groups
+                    .iter()
+                    .flat_map(|(_, entries)| entries.iter().cloned())
+                    .collect();
+                self.search_groups = Some(groups);
+                self.search_stats = Some(stats);
                 self.selected_index = None;
                 Task::none()
             }
@@ -273,6 +285,8 @@ impl Bouma {
             Message::SearchClear => {
                 self.search_text.clear();
                 self.active_search = None;
+                self.search_groups = None;
+                self.search_stats = None;
                 self.refresh_display();
                 Task::none()
             }
@@ -422,16 +436,19 @@ impl Bouma {
 
         let file_list = views::file_list::view(
             &self.display_entries,
+            self.search_groups.as_deref(),
             self.selected_index,
             self.sort_field,
             self.sort_order,
             self.settings.show_hidden,
             self.is_loading,
+            &self.current_path,
         );
 
         let transparency = views::transparency_panel::view(
             self.current_operation.as_ref(),
             self.current_diagnostics.as_ref(),
+            self.search_stats.as_ref(),
         );
 
         let status_bar = views::status_bar::view(
@@ -486,11 +503,7 @@ impl Bouma {
         let query_text = self.search_text.clone();
         let type_filter = self.type_filter;
 
-        // Adaptive depth: the shallower we are in the filesystem, the deeper we need to scan.
-        // Drive root (C:\)  → depth 8  (files can be at C:\Users\rayen\Desktop\sub\id.txt = 4 deep)
-        // 1-2 components    → depth 7
-        // 3-4 components    → depth 6
-        // deeper            → depth 5
+        // Adaptive depth based on filesystem depth.
         let path_depth = root.components().count();
         let max_depth: usize = match path_depth {
             0 | 1 => 8,
@@ -503,21 +516,65 @@ impl Bouma {
             async move {
                 tokio::task::spawn_blocking(move || {
                     let query = SearchQuery::parse(&query_text).ok()?;
+                    let t0 = Instant::now();
+
                     // Parallel recursive scan via jwalk
-                    let recursive_entries =
+                    let all_entries =
                         bouma_filesystem::walk_directory_recursive(&root, max_depth).ok()?;
-                    let results = bouma_search::search(&recursive_entries, &query, type_filter);
-                    // Cap at 2000 results to keep the UI responsive on wide drive scans
-                    Some(results.into_iter().take(2000).collect::<Vec<_>>())
+                    let total_scanned = all_entries.len();
+
+                    // Score every matching result
+                    let scored = bouma_search::search_scored(&all_entries, &query, type_filter);
+
+                    // Cap to 2000 total results on wide scans
+                    let scored: Vec<_> = scored.into_iter().take(2000).collect();
+
+                    // Aggregate tier counts before grouping
+                    let mut tier_counts = [0usize; 4];
+                    for (tier, _) in &scored {
+                        tier_counts[*tier as usize] += 1;
+                    }
+
+                    // Group by tier: Vec<(tier, Vec<FileEntry>)>
+                    let mut groups: Vec<(u8, Vec<FileEntry>)> = Vec::new();
+                    for tier in 0u8..=3u8 {
+                        let tier_entries: Vec<FileEntry> = scored
+                            .iter()
+                            .filter(|(t, _)| *t == tier)
+                            .map(|(_, e)| e.clone())
+                            .collect();
+                        if !tier_entries.is_empty() {
+                            groups.push((tier, tier_entries));
+                        }
+                    }
+
+                    let stats = SearchStats {
+                        query: query_text.clone(),
+                        total_scanned,
+                        tier_counts,
+                        scan_ms: t0.elapsed().as_millis() as u64,
+                        depth_used: max_depth,
+                    };
+
+                    Some((groups, stats))
                 })
                 .await
                 .ok()
                 .flatten()
-                .unwrap_or_default()
             },
-            Message::SearchResultsLoaded,
+            |result| match result {
+                Some((groups, stats)) => Message::SearchResultsLoaded(groups, stats),
+                None => Message::SearchResultsLoaded(vec![], SearchStats {
+                    query: String::new(),
+                    total_scanned: 0,
+                    tier_counts: [0; 4],
+                    scan_ms: 0,
+                    depth_used: 0,
+                }),
+            },
         )
     }
+
 
 
     /// Refreshes `display_entries` from `all_entries` with current sort + search + type filter.
