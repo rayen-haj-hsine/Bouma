@@ -27,6 +27,9 @@ pub enum FileTypeFilter {
     Video,
     Archives,
     Code,
+    Executables,
+    Spreadsheets,
+    Presentations,
 }
 
 impl FileTypeFilter {
@@ -39,6 +42,9 @@ impl FileTypeFilter {
         FileTypeFilter::Video,
         FileTypeFilter::Archives,
         FileTypeFilter::Code,
+        FileTypeFilter::Executables,
+        FileTypeFilter::Spreadsheets,
+        FileTypeFilter::Presentations,
     ];
 
     pub fn label(&self) -> &'static str {
@@ -51,6 +57,9 @@ impl FileTypeFilter {
             FileTypeFilter::Video => "Video",
             FileTypeFilter::Archives => "Archives",
             FileTypeFilter::Code => "Code",
+            FileTypeFilter::Executables => "Executables",
+            FileTypeFilter::Spreadsheets => "Spreadsheets",
+            FileTypeFilter::Presentations => "Presentations",
         }
     }
 
@@ -83,8 +92,20 @@ impl FileTypeFilter {
                 entry.extension().as_deref(),
                 Some(
                     "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "java" | "go" | "html" | "css"
-                        | "json" | "toml" | "yaml" | "yml" | "xml" | "sql" | "sh"
+                        | "json" | "toml" | "yaml" | "yml" | "xml" | "sql" | "sh" | "ps1" | "bat"
                 )
+            ),
+            FileTypeFilter::Executables => matches!(
+                entry.extension().as_deref(),
+                Some("exe" | "msi" | "app" | "bin" | "cmd")
+            ),
+            FileTypeFilter::Spreadsheets => matches!(
+                entry.extension().as_deref(),
+                Some("xls" | "xlsx" | "csv" | "ods" | "tsv")
+            ),
+            FileTypeFilter::Presentations => matches!(
+                entry.extension().as_deref(),
+                Some("ppt" | "pptx" | "key" | "odp")
             ),
         }
     }

@@ -12,4 +12,4 @@ pub mod walker;
 
 pub use dir_reader::read_directory;
 pub use operations::{copy_entry, create_directory, delete_entry, move_entry, rename_entry};
-pub use walker::walk_directory_recursive;
+pub use walker::{walk_directory_pruned, walk_directory_recursive};

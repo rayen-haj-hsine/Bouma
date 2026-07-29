@@ -9,6 +9,15 @@ use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::SortField;
 use std::path::PathBuf;
 
+/// Display mode for the application interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    /// Hero Mind Map landing interface.
+    MindMap,
+    /// Standard file list interface.
+    ListView,
+}
+
 /// Statistics emitted when a recursive search scan completes.
 #[derive(Debug, Clone)]
 pub struct SearchStats {
@@ -83,6 +92,14 @@ pub enum Message {
 
     /// Filter by a specific file type category.
     FilterTypeSelected(FileTypeFilter),
+
+    // ── Mind Map & View Modes ────────────────────────────────────
+
+    /// Toggle whether a directory node is closed (pruned from search).
+    ToggleFolderClosed(PathBuf),
+
+    /// Toggle or set active view mode.
+    SetViewMode(ViewMode),
 
     // ── Sidebar ─────────────────────────────────────────────────
 

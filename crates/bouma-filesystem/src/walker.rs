@@ -7,10 +7,22 @@ use std::fs;
 use std::path::Path;
 use tracing::debug;
 
+use std::collections::HashSet;
+use std::path::PathBuf;
+
 /// Recursively scans `root` directory up to `max_depth` (e.g., 5 levels deep).
 ///
 /// Uses `jwalk` for multi-threaded parallel scanning to saturate I/O.
 pub fn walk_directory_recursive(root: &Path, max_depth: usize) -> BoumaResult<Vec<FileEntry>> {
+    walk_directory_pruned(root, max_depth, &HashSet::new())
+}
+
+/// Recursively scans `root` directory, pruning any closed folder paths from traversal.
+pub fn walk_directory_pruned(
+    root: &Path,
+    max_depth: usize,
+    closed_paths: &HashSet<PathBuf>,
+) -> BoumaResult<Vec<FileEntry>> {
     if !root.exists() {
         return Err(BoumaError::NotFound(root.to_path_buf()));
     }
@@ -18,9 +30,22 @@ pub fn walk_directory_recursive(root: &Path, max_depth: usize) -> BoumaResult<Ve
         return Err(BoumaError::NotADirectory(root.to_path_buf()));
     }
 
+    let closed = closed_paths.clone();
+    let closed_for_proc = closed.clone();
+
     let walker = WalkDir::new(root)
         .max_depth(max_depth)
-        .skip_hidden(false);
+        .skip_hidden(false)
+        .process_read_dir(move |_depth, _path, _read_dir_state, children| {
+            children.retain(|dir_entry_result| {
+                if let Ok(dir_entry) = dir_entry_result {
+                    let entry_path = dir_entry.path();
+                    !closed_for_proc.iter().any(|c| entry_path.starts_with(c))
+                } else {
+                    true
+                }
+            });
+        });
 
     let entries: Vec<FileEntry> = walker
         .into_iter()
@@ -29,6 +54,11 @@ pub fn walk_directory_recursive(root: &Path, max_depth: usize) -> BoumaResult<Ve
                 let path = dir_entry.path();
                 // Skip the root path itself
                 if path == root {
+                    return None;
+                }
+
+                // Double-check closed path filter
+                if closed.iter().any(|c| path.starts_with(c)) {
                     return None;
                 }
 
@@ -114,6 +144,27 @@ mod tests {
 
         let entries = walk_directory_recursive(&root, 5).unwrap();
         assert!(entries.iter().any(|e| e.display_name() == "nested.txt"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_walk_pruned_skips_closed_folder() {
+        let root = test_dir("pruned");
+        let open_sub = root.join("open_folder");
+        let closed_sub = root.join("closed_folder");
+
+        fs::create_dir_all(&open_sub).unwrap();
+        fs::create_dir_all(&closed_sub).unwrap();
+        fs::write(open_sub.join("included.txt"), "yes").unwrap();
+        fs::write(closed_sub.join("excluded.txt"), "no").unwrap();
+
+        let mut closed_set = HashSet::new();
+        closed_set.insert(closed_sub);
+
+        let entries = walk_directory_pruned(&root, 5, &closed_set).unwrap();
+        assert!(entries.iter().any(|e| e.display_name() == "included.txt"));
+        assert!(!entries.iter().any(|e| e.display_name() == "excluded.txt"));
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -1,6 +1,6 @@
 //! Toolbar view — back/forward buttons, breadcrumb path, type filter dropdown, search bar.
 
-use crate::message::Message;
+use crate::message::{Message, ViewMode};
 use crate::theme;
 use bouma_core::entry::FileTypeFilter;
 use iced::widget::{button, container, pick_list, row, text, text_input};
@@ -13,10 +13,36 @@ pub fn view<'a>(
     can_go_forward: bool,
     search_text: &str,
     selected_type_filter: FileTypeFilter,
+    view_mode: ViewMode,
 ) -> Element<'a, Message> {
     let back_btn = nav_button("←", Message::GoBack, can_go_back);
     let forward_btn = nav_button("→", Message::GoForward, can_go_forward);
     let up_btn = nav_button("↑", Message::GoUp, true);
+
+    let (mode_label, next_mode) = match view_mode {
+        ViewMode::MindMap => ("🗺️ Map View", ViewMode::ListView),
+        ViewMode::ListView => ("📜 List View", ViewMode::MindMap),
+    };
+
+    let mode_btn = button(text(mode_label).size(12).color(theme::TEXT_PRIMARY))
+        .on_press(Message::SetViewMode(next_mode))
+        .padding([4, 10])
+        .style(|_theme, status| {
+            let bg = match status {
+                button::Status::Hovered => theme::BG_ELEVATED,
+                _ => theme::BG_SURFACE,
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg)),
+                text_color: theme::TEXT_PRIMARY,
+                border: iced::Border {
+                    color: theme::BORDER,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
 
     let breadcrumb = container(
         text(current_path.to_string())
@@ -75,7 +101,7 @@ pub fn view<'a>(
     };
 
     container(
-        row![back_btn, forward_btn, up_btn, breadcrumb, search_widget]
+        row![back_btn, forward_btn, up_btn, mode_btn, breadcrumb, search_widget]
             .spacing(theme::SPACING_SM)
             .align_y(iced::Alignment::Center),
     )

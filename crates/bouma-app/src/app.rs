@@ -1,6 +1,6 @@
 //! Main application state and logic (the Elm "Model" + "Update").
 
-use crate::message::{Message, SearchStats};
+use crate::message::{Message, SearchStats, ViewMode};
 use crate::theme;
 use crate::views;
 
@@ -11,6 +11,7 @@ use bouma_core::sort::{sort_entries, SortField, SortOrder};
 use bouma_search::SearchQuery;
 use iced::widget::{column, container, row};
 use iced::{Element, Length, Task, Theme};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -73,6 +74,12 @@ pub struct Bouma {
 
     /// Stats from the last completed recursive scan — shown in the transparency panel.
     search_stats: Option<SearchStats>,
+
+    /// Active view mode (MindMap vs ListView).
+    view_mode: ViewMode,
+
+    /// Folders toggled as "Closed" (pruned from recursive search).
+    closed_folders: HashSet<PathBuf>,
 }
 
 impl Bouma {
@@ -100,6 +107,8 @@ impl Bouma {
             clipboard_copy: None,
             search_groups: None,
             search_stats: None,
+            view_mode: ViewMode::MindMap,
+            closed_folders: HashSet::new(),
             settings,
         };
 
@@ -126,7 +135,10 @@ impl Bouma {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // ── Navigation ──────────────────────────────────────
-            Message::OpenDirectory(path) => self.navigate_to(path),
+            Message::OpenDirectory(path) => {
+                self.view_mode = ViewMode::ListView;
+                self.navigate_to(path)
+            }
 
             Message::GoUp => {
                 if let Some(parent) = self.current_path.parent() {
@@ -177,7 +189,6 @@ impl Bouma {
 
             Message::SearchResultsLoaded(groups, stats) => {
                 self.is_loading = false;
-                // Flatten groups into display_entries (for status bar / fallback)
                 self.display_entries = groups
                     .iter()
                     .flat_map(|(_, entries)| entries.iter().cloned())
@@ -239,13 +250,15 @@ impl Bouma {
                 self.search_text = text;
                 if self.search_text.is_empty() {
                     self.active_search = None;
+                    self.search_groups = None;
+                    self.search_stats = None;
                     self.refresh_display();
                     Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
-                    // Immediately update current-dir view (0 ms)
+                    self.view_mode = ViewMode::ListView; // Switch to list view on search
                     self.refresh_display();
-                    // Adaptive debounce: wider scans (drive root) get more breathing room
+
                     let path_depth = self.current_path.components().count();
                     let delay_ms: u64 = if path_depth <= 2 { 350 } else { 200 };
                     self.search_generation += 1;
@@ -263,9 +276,7 @@ impl Bouma {
                 }
             }
 
-
             Message::SearchDebounced(gen) => {
-                // Discard stale debounce fires from earlier keystrokes
                 if gen == self.search_generation {
                     return self.trigger_recursive_search();
                 }
@@ -276,6 +287,7 @@ impl Bouma {
                 if !self.search_text.is_empty() {
                     if let Ok(query) = SearchQuery::parse(&self.search_text) {
                         self.active_search = Some(query);
+                        self.view_mode = ViewMode::ListView;
                         return self.trigger_recursive_search();
                     }
                 }
@@ -301,8 +313,29 @@ impl Bouma {
                 }
             }
 
+            // ── Mind Map & View Modes ────────────────────────────
+            Message::SetViewMode(mode) => {
+                self.view_mode = mode;
+                Task::none()
+            }
+
+            Message::ToggleFolderClosed(path) => {
+                if self.closed_folders.contains(&path) {
+                    self.closed_folders.remove(&path);
+                } else {
+                    self.closed_folders.insert(path);
+                }
+                if self.active_search.is_some() {
+                    return self.trigger_recursive_search();
+                }
+                Task::none()
+            }
+
             // ── Sidebar ─────────────────────────────────────────
-            Message::SidebarNavigate(path) => self.navigate_to(path),
+            Message::SidebarNavigate(path) => {
+                self.view_mode = ViewMode::ListView;
+                self.navigate_to(path)
+            }
 
             // ── Settings ────────────────────────────────────────
             Message::ToggleHidden => {
@@ -430,20 +463,32 @@ impl Bouma {
             self.history.can_go_forward(),
             &self.search_text,
             self.type_filter,
+            self.view_mode,
         );
 
-        let sidebar = views::sidebar::view(&self.settings.favorites, &self.current_path);
+        let main_view: Element<'_, Message> = if self.view_mode == ViewMode::MindMap && self.active_search.is_none() {
+            views::mind_map::view(
+                &self.current_path,
+                &self.closed_folders,
+                &self.search_text,
+                self.type_filter,
+            )
+        } else {
+            let sidebar = views::sidebar::view(&self.settings.favorites, &self.current_path);
 
-        let file_list = views::file_list::view(
-            &self.display_entries,
-            self.search_groups.as_deref(),
-            self.selected_index,
-            self.sort_field,
-            self.sort_order,
-            self.settings.show_hidden,
-            self.is_loading,
-            &self.current_path,
-        );
+            let file_list = views::file_list::view(
+                &self.display_entries,
+                self.search_groups.as_deref(),
+                self.selected_index,
+                self.sort_field,
+                self.sort_order,
+                self.settings.show_hidden,
+                self.is_loading,
+                &self.current_path,
+            );
+
+            row![sidebar, file_list].into()
+        };
 
         let transparency = views::transparency_panel::view(
             self.current_operation.as_ref(),
@@ -457,14 +502,9 @@ impl Bouma {
             self.settings.show_hidden,
         );
 
-        let main_content = column![
-            toolbar,
-            row![sidebar, file_list],
-            transparency,
-            status_bar
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill);
+        let main_content = column![toolbar, main_view, transparency, status_bar]
+            .width(Length::Fill)
+            .height(Length::Fill);
 
         container(main_content)
             .width(Length::Fill)
@@ -497,11 +537,12 @@ impl Bouma {
         })
     }
 
-    /// Triggers async background recursive search on subfolders without flickering UI.
+    /// Triggers async background recursive search on subfolders with pruning of closed paths.
     fn trigger_recursive_search(&mut self) -> Task<Message> {
         let root = self.current_path.clone();
         let query_text = self.search_text.clone();
         let type_filter = self.type_filter;
+        let closed_folders = self.closed_folders.clone();
 
         // Adaptive depth based on filesystem depth.
         let path_depth = root.components().count();
@@ -518,9 +559,13 @@ impl Bouma {
                     let query = SearchQuery::parse(&query_text).ok()?;
                     let t0 = Instant::now();
 
-                    // Parallel recursive scan via jwalk
-                    let all_entries =
-                        bouma_filesystem::walk_directory_recursive(&root, max_depth).ok()?;
+                    // Parallel recursive scan via jwalk with closed folder pruning
+                    let all_entries = bouma_filesystem::walk_directory_pruned(
+                        &root,
+                        max_depth,
+                        &closed_folders,
+                    )
+                    .ok()?;
                     let total_scanned = all_entries.len();
 
                     // Score every matching result
@@ -564,18 +609,19 @@ impl Bouma {
             },
             |result| match result {
                 Some((groups, stats)) => Message::SearchResultsLoaded(groups, stats),
-                None => Message::SearchResultsLoaded(vec![], SearchStats {
-                    query: String::new(),
-                    total_scanned: 0,
-                    tier_counts: [0; 4],
-                    scan_ms: 0,
-                    depth_used: 0,
-                }),
+                None => Message::SearchResultsLoaded(
+                    vec![],
+                    SearchStats {
+                        query: String::new(),
+                        total_scanned: 0,
+                        tier_counts: [0; 4],
+                        scan_ms: 0,
+                        depth_used: 0,
+                    },
+                ),
             },
         )
     }
-
-
 
     /// Refreshes `display_entries` from `all_entries` with current sort + search + type filter.
     fn refresh_display(&mut self) {
