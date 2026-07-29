@@ -61,6 +61,10 @@ pub enum Message {
     /// Clear the search and show all entries.
     SearchClear,
 
+    /// Fired after a short debounce delay to actually run the recursive search.
+    /// Carries a generation counter — stale fires (gen < current) are silently dropped.
+    SearchDebounced(u64),
+
     /// Filter by a specific file type category.
     FilterTypeSelected(FileTypeFilter),
 

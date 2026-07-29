@@ -12,7 +12,7 @@ use bouma_search::SearchQuery;
 use iced::widget::{column, container, row};
 use iced::{Element, Length, Task, Theme};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The root application state.
 pub struct Bouma {
@@ -49,6 +49,10 @@ pub struct Bouma {
     /// Search bar text.
     search_text: String,
 
+    /// Monotonically increasing counter — incremented on every keystroke.
+    /// `SearchDebounced(gen)` messages with a stale `gen` are silently dropped.
+    search_generation: u64,
+
     /// Selected file type filter (All, Folders, Documents, Images, etc.).
     type_filter: FileTypeFilter,
 
@@ -82,6 +86,7 @@ impl Bouma {
             sort_field: settings.sort_field,
             sort_order: settings.sort_order,
             search_text: String::new(),
+            search_generation: 0,
             type_filter: FileTypeFilter::All,
             active_search: None,
             current_operation: None,
@@ -226,12 +231,30 @@ impl Bouma {
                     Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
+                    // Immediately update current-dir view (0 ms)
                     self.refresh_display();
-                    self.trigger_recursive_search()
+                    // Schedule debounced recursive search (200 ms)
+                    self.search_generation += 1;
+                    let gen = self.search_generation;
+                    Task::perform(
+                        async move {
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            gen
+                        },
+                        Message::SearchDebounced,
+                    )
                 } else {
                     self.refresh_display();
                     Task::none()
                 }
+            }
+
+            Message::SearchDebounced(gen) => {
+                // Discard stale debounce fires from earlier keystrokes
+                if gen == self.search_generation {
+                    return self.trigger_recursive_search();
+                }
+                Task::none()
             }
 
             Message::SearchSubmit => {
