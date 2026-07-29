@@ -10,3 +10,4 @@ description = "Filesystem operations for the Bouma file manager"
 bouma-core = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
+trash = "5"

@@ -5,6 +5,7 @@
 //! determine state transitions.
 
 use bouma_core::entry::FileEntry;
+use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::SortField;
 use std::path::PathBuf;
 
@@ -27,8 +28,8 @@ pub enum Message {
 
     // ── Directory loading ───────────────────────────────────────
 
-    /// Directory contents loaded successfully.
-    DirectoryLoaded(PathBuf, Vec<FileEntry>),
+    /// Directory contents loaded successfully with timing diagnostics.
+    DirectoryLoaded(PathBuf, Vec<FileEntry>, OperationDiagnostics),
 
     /// Directory loading failed.
     DirectoryError(String),
@@ -66,4 +67,27 @@ pub enum Message {
 
     /// Toggle showing hidden files.
     ToggleHidden,
+
+    // ── File Operations ─────────────────────────────────────────
+
+    /// Prompt user to create a new folder in current directory.
+    CreateDirectorySubmit(String),
+
+    /// Rename the currently selected entry.
+    RenameSubmit(usize, String),
+
+    /// Delete the currently selected entry to Recycle Bin.
+    DeleteSelected,
+
+    /// Copy the currently selected entry to clipboard buffer.
+    CopySelected,
+
+    /// Paste copied entry to current directory.
+    Paste,
+
+    /// Real-time progress update from background file operation.
+    OperationProgressUpdate(OperationProgress),
+
+    /// Background file operation completed.
+    OperationFinished(Result<(), String>),
 }

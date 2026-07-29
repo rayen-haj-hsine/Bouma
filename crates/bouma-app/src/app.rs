@@ -1,10 +1,4 @@
 //! Main application state and logic (the Elm "Model" + "Update").
-//!
-//! This is where all the pieces come together:
-//! - State management
-//! - Message handling
-//! - Async task spawning
-//! - View composition
 
 use crate::message::Message;
 use crate::theme;
@@ -12,11 +6,13 @@ use crate::views;
 
 use bouma_cache::{HistoryStore, Settings};
 use bouma_core::entry::{EntryKind, FileEntry};
+use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::{sort_entries, SortField, SortOrder};
 use bouma_search::SearchQuery;
 use iced::widget::{column, container, row};
 use iced::{Element, Length, Task, Theme};
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// The root application state.
 pub struct Bouma {
@@ -55,6 +51,15 @@ pub struct Bouma {
 
     /// Active search query (None = show all).
     active_search: Option<SearchQuery>,
+
+    /// Active file operation progress (for Transparency Panel).
+    current_operation: Option<OperationProgress>,
+
+    /// Diagnostic info timing breakdown (for Transparency Panel).
+    current_diagnostics: Option<OperationDiagnostics>,
+
+    /// Path copied to internal buffer (for Copy / Paste).
+    clipboard_copy: Option<PathBuf>,
 }
 
 impl Bouma {
@@ -75,12 +80,15 @@ impl Bouma {
             sort_order: settings.sort_order,
             search_text: String::new(),
             active_search: None,
+            current_operation: None,
+            current_diagnostics: None,
+            clipboard_copy: None,
             settings,
         };
 
         // Load the starting directory on launch
         let task = Task::perform(load_directory(start_dir.clone()), move |result| match result {
-            Ok(entries) => Message::DirectoryLoaded(start_dir.clone(), entries),
+            Ok((entries, diag)) => Message::DirectoryLoaded(start_dir.clone(), entries, diag),
             Err(err) => Message::DirectoryError(err),
         });
 
@@ -101,9 +109,7 @@ impl Bouma {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // ── Navigation ──────────────────────────────────────
-            Message::OpenDirectory(path) => {
-                self.navigate_to(path)
-            }
+            Message::OpenDirectory(path) => self.navigate_to(path),
 
             Message::GoUp => {
                 if let Some(parent) = self.current_path.parent() {
@@ -133,9 +139,10 @@ impl Bouma {
             }
 
             // ── Directory loading ───────────────────────────────
-            Message::DirectoryLoaded(path, entries) => {
+            Message::DirectoryLoaded(path, entries, diag) => {
                 self.current_path = path;
                 self.all_entries = entries;
+                self.current_diagnostics = Some(diag);
                 self.is_loading = false;
                 self.error = None;
                 self.selected_index = None;
@@ -154,7 +161,6 @@ impl Bouma {
 
             // ── File interactions ───────────────────────────────
             Message::EntryClicked(index) => {
-                // Double-click detection: if clicking the same index, open it
                 if self.selected_index == Some(index) {
                     return self.update(Message::EntryDoubleClicked(index));
                 }
@@ -170,7 +176,6 @@ impl Bouma {
                             self.navigate_to(path)
                         }
                         EntryKind::File | EntryKind::Symlink => {
-                            // Open file with default system handler
                             let path = entry.path.clone();
                             let _ = open::that(&path);
                             Task::none()
@@ -196,7 +201,6 @@ impl Bouma {
             // ── Search ──────────────────────────────────────────
             Message::SearchInputChanged(text) => {
                 self.search_text = text;
-                // Live search as you type
                 if self.search_text.is_empty() {
                     self.active_search = None;
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
@@ -224,15 +228,123 @@ impl Bouma {
             }
 
             // ── Sidebar ─────────────────────────────────────────
-            Message::SidebarNavigate(path) => {
-                self.navigate_to(path)
-            }
+            Message::SidebarNavigate(path) => self.navigate_to(path),
 
             // ── Settings ────────────────────────────────────────
             Message::ToggleHidden => {
                 self.settings.show_hidden = !self.settings.show_hidden;
                 self.refresh_display();
                 Task::none()
+            }
+
+            // ── File Operations ─────────────────────────────────
+            Message::CreateDirectorySubmit(folder_name) => {
+                let parent = self.current_path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            bouma_filesystem::create_directory(&parent, &folder_name)
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .map_err(|e| e.to_string())
+                    },
+                    |res| match res {
+                        Ok(_) => Message::OperationFinished(Ok(())),
+                        Err(e) => Message::OperationFinished(Err(e)),
+                    },
+                )
+            }
+
+            Message::RenameSubmit(index, new_name) => {
+                if let Some(entry) = self.display_entries.get(index) {
+                    let from = entry.path.clone();
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                bouma_filesystem::rename_entry(&from, &new_name)
+                            })
+                            .await
+                            .map_err(|e| e.to_string())?
+                            .map_err(|e| e.to_string())
+                        },
+                        |res| match res {
+                            Ok(_) => Message::OperationFinished(Ok(())),
+                            Err(e) => Message::OperationFinished(Err(e)),
+                        },
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+
+            Message::DeleteSelected => {
+                if let Some(idx) = self.selected_index {
+                    if let Some(entry) = self.display_entries.get(idx) {
+                        let path = entry.path.clone();
+                        return Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    bouma_filesystem::delete_entry(&path)
+                                })
+                                .await
+                                .map_err(|e| e.to_string())?
+                                .map_err(|e| e.to_string())
+                            },
+                            |res| match res {
+                                Ok(_) => Message::OperationFinished(Ok(())),
+                                Err(e) => Message::OperationFinished(Err(e)),
+                            },
+                        );
+                    }
+                }
+                Task::none()
+            }
+
+            Message::CopySelected => {
+                if let Some(idx) = self.selected_index {
+                    if let Some(entry) = self.display_entries.get(idx) {
+                        self.clipboard_copy = Some(entry.path.clone());
+                    }
+                }
+                Task::none()
+            }
+
+            Message::Paste => {
+                if let Some(ref src) = self.clipboard_copy {
+                    let src = src.clone();
+                    let dst_dir = self.current_path.clone();
+
+                    return Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                bouma_filesystem::copy_entry(&src, &dst_dir, None)
+                            })
+                            .await
+                            .map_err(|e| e.to_string())?
+                            .map_err(|e| e.to_string())
+                        },
+                        |res| match res {
+                            Ok(_) => Message::OperationFinished(Ok(())),
+                            Err(e) => Message::OperationFinished(Err(e)),
+                        },
+                    );
+                }
+                Task::none()
+            }
+
+            Message::OperationProgressUpdate(progress) => {
+                self.current_operation = Some(progress);
+                Task::none()
+            }
+
+            Message::OperationFinished(result) => {
+                self.current_operation = None;
+                if let Err(e) = result {
+                    self.error = Some(e);
+                }
+                // Reload current directory to show changes
+                self.load_directory_async(self.current_path.clone())
             }
         }
     }
@@ -257,15 +369,25 @@ impl Bouma {
             self.is_loading,
         );
 
+        let transparency = views::transparency_panel::view(
+            self.current_operation.as_ref(),
+            self.current_diagnostics.as_ref(),
+        );
+
         let status_bar = views::status_bar::view(
             &self.display_entries,
             self.selected_index,
             self.settings.show_hidden,
         );
 
-        let main_content = column![toolbar, row![sidebar, file_list], status_bar]
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let main_content = column![
+            toolbar,
+            row![sidebar, file_list],
+            transparency,
+            status_bar
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill);
 
         container(main_content)
             .width(Length::Fill)
@@ -285,7 +407,7 @@ impl Bouma {
         self.load_directory_async(path)
     }
 
-    /// Starts async directory loading.
+    /// Starts async directory loading with transparency diagnostic tracking.
     fn load_directory_async(&mut self, path: PathBuf) -> Task<Message> {
         self.is_loading = true;
         self.error = None;
@@ -293,7 +415,7 @@ impl Bouma {
 
         let path_clone = path.clone();
         Task::perform(load_directory(path), move |result| match result {
-            Ok(entries) => Message::DirectoryLoaded(path_clone.clone(), entries),
+            Ok((entries, diag)) => Message::DirectoryLoaded(path_clone.clone(), entries, diag),
             Err(err) => Message::DirectoryError(err),
         })
     }
@@ -312,11 +434,18 @@ impl Bouma {
     }
 }
 
-/// Loads a directory's contents in a blocking task (runs on tokio thread pool).
-async fn load_directory(path: PathBuf) -> Result<Vec<FileEntry>, String> {
-    // Use spawn_blocking because filesystem ops are blocking I/O
+/// Loads a directory's contents with timing diagnostics.
+async fn load_directory(
+    path: PathBuf,
+) -> Result<(Vec<FileEntry>, OperationDiagnostics), String> {
     tokio::task::spawn_blocking(move || {
-        bouma_filesystem::read_directory(&path).map_err(|e| e.to_string())
+        let mut diag = OperationDiagnostics::new("Folder Loading");
+        let start = Instant::now();
+
+        let entries = bouma_filesystem::read_directory(&path).map_err(|e| e.to_string())?;
+        diag.record_phase("Read Filesystem", start.elapsed());
+
+        Ok((entries, diag))
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?

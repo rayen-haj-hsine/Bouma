@@ -7,5 +7,7 @@
 //! reporting.
 
 pub mod dir_reader;
+pub mod operations;
 
 pub use dir_reader::read_directory;
+pub use operations::{copy_entry, create_directory, delete_entry, move_entry, rename_entry};
