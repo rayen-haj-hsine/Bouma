@@ -1,0 +1,12 @@
+[package]
+name = "bouma-filesystem"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Filesystem operations for the Bouma file manager"
+
+[dependencies]
+bouma-core = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }

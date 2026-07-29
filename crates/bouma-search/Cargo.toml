@@ -1,0 +1,11 @@
+[package]
+name = "bouma-search"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Filename search engine for the Bouma file manager"
+
+[dependencies]
+bouma-core = { workspace = true }
+globset = { workspace = true }

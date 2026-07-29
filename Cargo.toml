@@ -1,0 +1,48 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Rayen"]
+license = "MIT"
+repository = "https://github.com/rayen/bouma"
+description = "A minimal, fast, offline-first file manager for Windows"
+
+[workspace.dependencies]
+# Core
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# Async & parallelism
+tokio = { version = "1", features = ["full"] }
+rayon = "1"
+
+# Filesystem
+jwalk = "0.8"
+
+# Search
+globset = "0.4"
+
+# Caching & paths
+directories = "5"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# GUI
+iced = { version = "0.14", features = ["tokio", "svg", "image"] }
+
+# Internal crates
+bouma-core = { path = "crates/bouma-core" }
+bouma-filesystem = { path = "crates/bouma-filesystem" }
+bouma-search = { path = "crates/bouma-search" }
+bouma-cache = { path = "crates/bouma-cache" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

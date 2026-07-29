@@ -1,0 +1,24 @@
+[package]
+name = "bouma-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "The Bouma file manager — GUI application"
+
+[[bin]]
+name = "bouma"
+path = "src/main.rs"
+
+[dependencies]
+bouma-core = { workspace = true }
+bouma-filesystem = { workspace = true }
+bouma-search = { workspace = true }
+bouma-cache = { workspace = true }
+
+iced = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+open = "5"
+directories = { workspace = true }

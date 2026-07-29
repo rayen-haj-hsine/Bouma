@@ -1,0 +1,11 @@
+[package]
+name = "bouma-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core domain types, traits, and business logic for Bouma"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
