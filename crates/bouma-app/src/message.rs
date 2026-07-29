@@ -4,7 +4,7 @@
 //! The `update` function in `app.rs` pattern-matches on these to
 //! determine state transitions.
 
-use bouma_core::entry::FileEntry;
+use bouma_core::entry::{FileEntry, FileTypeFilter};
 use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::SortField;
 use std::path::PathBuf;
@@ -60,6 +60,9 @@ pub enum Message {
 
     /// Clear the search and show all entries.
     SearchClear,
+
+    /// Filter by a specific file type category.
+    FilterTypeSelected(FileTypeFilter),
 
     // ── Sidebar ─────────────────────────────────────────────────
 

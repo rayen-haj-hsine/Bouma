@@ -16,6 +16,86 @@ pub enum EntryKind {
     Symlink,
 }
 
+/// Category filter for file types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FileTypeFilter {
+    All,
+    Folders,
+    Documents,
+    Images,
+    Audio,
+    Video,
+    Archives,
+    Code,
+}
+
+impl FileTypeFilter {
+    pub const ALL: &'static [FileTypeFilter] = &[
+        FileTypeFilter::All,
+        FileTypeFilter::Folders,
+        FileTypeFilter::Documents,
+        FileTypeFilter::Images,
+        FileTypeFilter::Audio,
+        FileTypeFilter::Video,
+        FileTypeFilter::Archives,
+        FileTypeFilter::Code,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            FileTypeFilter::All => "All Types",
+            FileTypeFilter::Folders => "Folders",
+            FileTypeFilter::Documents => "Documents",
+            FileTypeFilter::Images => "Images",
+            FileTypeFilter::Audio => "Audio",
+            FileTypeFilter::Video => "Video",
+            FileTypeFilter::Archives => "Archives",
+            FileTypeFilter::Code => "Code",
+        }
+    }
+
+    /// Checks if a FileEntry matches this type filter.
+    pub fn matches(&self, entry: &FileEntry) -> bool {
+        match self {
+            FileTypeFilter::All => true,
+            FileTypeFilter::Folders => entry.kind == EntryKind::Directory,
+            FileTypeFilter::Documents => matches!(
+                entry.extension().as_deref(),
+                Some("pdf" | "doc" | "docx" | "txt" | "md" | "odt" | "rtf")
+            ),
+            FileTypeFilter::Images => matches!(
+                entry.extension().as_deref(),
+                Some("jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "webp")
+            ),
+            FileTypeFilter::Audio => matches!(
+                entry.extension().as_deref(),
+                Some("mp3" | "wav" | "flac" | "ogg" | "aac" | "m4a")
+            ),
+            FileTypeFilter::Video => matches!(
+                entry.extension().as_deref(),
+                Some("mp4" | "mkv" | "avi" | "mov" | "webm" | "flv")
+            ),
+            FileTypeFilter::Archives => matches!(
+                entry.extension().as_deref(),
+                Some("zip" | "rar" | "7z" | "tar" | "gz" | "bz2")
+            ),
+            FileTypeFilter::Code => matches!(
+                entry.extension().as_deref(),
+                Some(
+                    "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "java" | "go" | "html" | "css"
+                        | "json" | "toml" | "yaml" | "yml" | "xml" | "sql" | "sh"
+                )
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for FileTypeFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
 impl EntryKind {
     /// Returns a human-readable label for this entry kind.
     pub fn label(&self) -> &'static str {
@@ -167,5 +247,35 @@ mod tests {
             hidden: false,
         };
         assert_eq!(entry.display_size(), "—");
+    }
+
+    #[test]
+    fn test_file_type_filter() {
+        let doc_entry = FileEntry {
+            name: OsString::from("report.pdf"),
+            path: PathBuf::from("C:\\report.pdf"),
+            kind: EntryKind::File,
+            size: 100,
+            created: None,
+            modified: None,
+            readonly: false,
+            hidden: false,
+        };
+
+        let dir_entry = FileEntry {
+            name: OsString::from("folder"),
+            path: PathBuf::from("C:\\folder"),
+            kind: EntryKind::Directory,
+            size: 0,
+            created: None,
+            modified: None,
+            readonly: false,
+            hidden: false,
+        };
+
+        assert!(FileTypeFilter::All.matches(&doc_entry));
+        assert!(FileTypeFilter::Documents.matches(&doc_entry));
+        assert!(!FileTypeFilter::Images.matches(&doc_entry));
+        assert!(FileTypeFilter::Folders.matches(&dir_entry));
     }
 }

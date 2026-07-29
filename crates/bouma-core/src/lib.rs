@@ -11,6 +11,6 @@ pub mod error;
 pub mod operations;
 pub mod sort;
 
-pub use entry::{EntryKind, FileEntry};
+pub use entry::{EntryKind, FileEntry, FileTypeFilter};
 pub use error::BoumaError;
 pub use sort::{SortField, SortOrder};

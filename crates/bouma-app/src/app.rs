@@ -5,7 +5,7 @@ use crate::theme;
 use crate::views;
 
 use bouma_cache::{HistoryStore, Settings};
-use bouma_core::entry::{EntryKind, FileEntry};
+use bouma_core::entry::{EntryKind, FileEntry, FileTypeFilter};
 use bouma_core::operations::{OperationDiagnostics, OperationProgress};
 use bouma_core::sort::{sort_entries, SortField, SortOrder};
 use bouma_search::SearchQuery;
@@ -22,7 +22,7 @@ pub struct Bouma {
     /// All entries in the current directory (unsorted/unfiltered source of truth).
     all_entries: Vec<FileEntry>,
 
-    /// Entries after sorting and search filtering.
+    /// Entries after sorting, type filtering, and search filtering.
     display_entries: Vec<FileEntry>,
 
     /// Currently selected entry index (into `display_entries`).
@@ -48,6 +48,9 @@ pub struct Bouma {
 
     /// Search bar text.
     search_text: String,
+
+    /// Selected file type filter (All, Folders, Documents, Images, etc.).
+    type_filter: FileTypeFilter,
 
     /// Active search query (None = show all).
     active_search: Option<SearchQuery>,
@@ -79,6 +82,7 @@ impl Bouma {
             sort_field: settings.sort_field,
             sort_order: settings.sort_order,
             search_text: String::new(),
+            type_filter: FileTypeFilter::All,
             active_search: None,
             current_operation: None,
             current_diagnostics: None,
@@ -147,7 +151,6 @@ impl Bouma {
                 self.error = None;
                 self.selected_index = None;
 
-                // PRESERVE SEARCH TEXT across folder navigation!
                 if !self.search_text.is_empty() {
                     if let Ok(query) = SearchQuery::parse(&self.search_text) {
                         self.active_search = Some(query);
@@ -214,7 +217,7 @@ impl Bouma {
                 Task::none()
             }
 
-            // ── Search ──────────────────────────────────────────
+            // ── Search & Filter ─────────────────────────────────
             Message::SearchInputChanged(text) => {
                 self.search_text = text;
                 if self.search_text.is_empty() {
@@ -223,9 +226,7 @@ impl Bouma {
                     Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
-                    // 1. Instantly filter current directory (0ms latency!)
                     self.refresh_display();
-                    // 2. Trigger background subfolder scan
                     self.trigger_recursive_search()
                 } else {
                     self.refresh_display();
@@ -248,6 +249,16 @@ impl Bouma {
                 self.active_search = None;
                 self.refresh_display();
                 Task::none()
+            }
+
+            Message::FilterTypeSelected(filter) => {
+                self.type_filter = filter;
+                if !self.search_text.is_empty() {
+                    self.trigger_recursive_search()
+                } else {
+                    self.refresh_display();
+                    Task::none()
+                }
             }
 
             // ── Sidebar ─────────────────────────────────────────
@@ -378,6 +389,7 @@ impl Bouma {
             self.history.can_go_back(),
             self.history.can_go_forward(),
             &self.search_text,
+            self.type_filter,
         );
 
         let sidebar = views::sidebar::view(&self.settings.favorites, &self.current_path);
@@ -446,6 +458,7 @@ impl Bouma {
     fn trigger_recursive_search(&mut self) -> Task<Message> {
         let root = self.current_path.clone();
         let query_text = self.search_text.clone();
+        let type_filter = self.type_filter;
 
         Task::perform(
             async move {
@@ -454,7 +467,7 @@ impl Bouma {
                     // Scan current folder + subfolders up to 3 levels deep in parallel (jwalk)
                     let recursive_entries =
                         bouma_filesystem::walk_directory_recursive(&root, 3).ok()?;
-                    Some(bouma_search::search(&recursive_entries, &query))
+                    Some(bouma_search::search(&recursive_entries, &query, type_filter))
                 })
                 .await
                 .ok()
@@ -465,12 +478,16 @@ impl Bouma {
         )
     }
 
-    /// Refreshes `display_entries` from `all_entries` with current sort + search.
+    /// Refreshes `display_entries` from `all_entries` with current sort + search + type filter.
     fn refresh_display(&mut self) {
         let mut entries = if let Some(ref query) = self.active_search {
-            bouma_search::search(&self.all_entries, query)
+            bouma_search::search(&self.all_entries, query, self.type_filter)
         } else {
-            self.all_entries.clone()
+            self.all_entries
+                .iter()
+                .filter(|e| self.type_filter.matches(e))
+                .cloned()
+                .collect()
         };
 
         sort_entries(&mut entries, self.sort_field, self.sort_order);

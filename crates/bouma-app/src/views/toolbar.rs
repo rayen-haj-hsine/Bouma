@@ -1,8 +1,9 @@
-//! Toolbar view — back/forward buttons, breadcrumb path, search bar.
+//! Toolbar view — back/forward buttons, breadcrumb path, type filter dropdown, search bar.
 
 use crate::message::Message;
 use crate::theme;
-use iced::widget::{button, container, row, text, text_input};
+use bouma_core::entry::FileTypeFilter;
+use iced::widget::{button, container, pick_list, row, text, text_input};
 use iced::{Element, Length};
 
 /// Renders the toolbar row.
@@ -11,6 +12,7 @@ pub fn view<'a>(
     can_go_back: bool,
     can_go_forward: bool,
     search_text: &str,
+    selected_type_filter: FileTypeFilter,
 ) -> Element<'a, Message> {
     let back_btn = nav_button("←", Message::GoBack, can_go_back);
     let forward_btn = nav_button("→", Message::GoForward, can_go_forward);
@@ -24,14 +26,23 @@ pub fn view<'a>(
     .padding(theme::PADDING_SM)
     .width(Length::Fill);
 
+    let type_selector = pick_list(
+        FileTypeFilter::ALL,
+        Some(selected_type_filter),
+        Message::FilterTypeSelected,
+    )
+    .text_size(12)
+    .padding([4, 8]);
+
     let search_input = text_input("Search files & subfolders...", search_text)
         .on_input(Message::SearchInputChanged)
         .on_submit(Message::SearchSubmit)
         .size(13)
-        .width(220);
+        .width(200);
 
     let search_widget: Element<'a, Message> = if !search_text.is_empty() {
         row![
+            type_selector,
             search_input,
             button(text("✕").size(12).color(theme::TEXT_MUTED))
                 .on_press(Message::SearchClear)
@@ -57,7 +68,10 @@ pub fn view<'a>(
         .align_y(iced::Alignment::Center)
         .into()
     } else {
-        search_input.into()
+        row![type_selector, search_input]
+            .spacing(4)
+            .align_y(iced::Alignment::Center)
+            .into()
     };
 
     container(

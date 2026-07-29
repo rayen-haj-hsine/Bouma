@@ -1,17 +1,21 @@
 //! Search engine — filters a list of `FileEntry` by a `SearchQuery`.
 
-use bouma_core::entry::FileEntry;
+use bouma_core::entry::{FileEntry, FileTypeFilter};
 
 use crate::query::SearchQuery;
 
-/// Filters entries that match the given search query.
+/// Filters entries that match the given search query and file type filter.
 ///
 /// Returns a new `Vec` containing only the matching entries (cloned).
 /// The order of the input is preserved.
-pub fn search(entries: &[FileEntry], query: &SearchQuery) -> Vec<FileEntry> {
+pub fn search(
+    entries: &[FileEntry],
+    query: &SearchQuery,
+    type_filter: FileTypeFilter,
+) -> Vec<FileEntry> {
     entries
         .iter()
-        .filter(|entry| query.matches(&entry.display_name()))
+        .filter(|entry| type_filter.matches(entry) && query.matches(&entry.display_name()))
         .cloned()
         .collect()
 }
@@ -45,7 +49,7 @@ mod tests {
         ];
 
         let query = SearchQuery::parse("report").unwrap();
-        let results = search(&entries, &query);
+        let results = search(&entries, &query, FileTypeFilter::All);
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].display_name(), "report.pdf");
@@ -61,7 +65,7 @@ mod tests {
         ];
 
         let query = SearchQuery::parse("*.pdf").unwrap();
-        let results = search(&entries, &query);
+        let results = search(&entries, &query, FileTypeFilter::All);
 
         assert_eq!(results.len(), 2);
     }
@@ -70,7 +74,7 @@ mod tests {
     fn test_search_no_results() {
         let entries = vec![make_entry("file.txt")];
         let query = SearchQuery::parse("xyz").unwrap();
-        let results = search(&entries, &query);
+        let results = search(&entries, &query, FileTypeFilter::All);
         assert!(results.is_empty());
     }
 
@@ -83,7 +87,7 @@ mod tests {
         ];
 
         let query = SearchQuery::parse("ext:rs").unwrap();
-        let results = search(&entries, &query);
+        let results = search(&entries, &query, FileTypeFilter::All);
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].display_name(), "c_file.rs");
