@@ -223,6 +223,9 @@ impl Bouma {
                     Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
+                    // 1. Instantly filter current directory (0ms latency!)
+                    self.refresh_display();
+                    // 2. Trigger background subfolder scan
                     self.trigger_recursive_search()
                 } else {
                     self.refresh_display();
@@ -439,20 +442,18 @@ impl Bouma {
         })
     }
 
-    /// Triggers async recursive search on subfolders.
+    /// Triggers async background recursive search on subfolders without flickering UI.
     fn trigger_recursive_search(&mut self) -> Task<Message> {
         let root = self.current_path.clone();
         let query_text = self.search_text.clone();
-
-        self.is_loading = true;
 
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let query = SearchQuery::parse(&query_text).ok()?;
-                    // Scan current folder + subfolders up to 5 levels deep in parallel (jwalk)
+                    // Scan current folder + subfolders up to 3 levels deep in parallel (jwalk)
                     let recursive_entries =
-                        bouma_filesystem::walk_directory_recursive(&root, 5).ok()?;
+                        bouma_filesystem::walk_directory_recursive(&root, 3).ok()?;
                     Some(bouma_search::search(&recursive_entries, &query))
                 })
                 .await
