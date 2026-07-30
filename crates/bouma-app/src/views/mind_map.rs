@@ -1,10 +1,10 @@
 //! Mind Map View — interactive visual diagram of system directories
-//! allowing users to prune/exclude closed folders from recursive search.
+//! allowing users to expand folders under C:\ and prune closed folders from search.
 
 use crate::message::{Message, ViewMode};
 use crate::theme;
-use bouma_core::entry::FileTypeFilter;
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input};
+use bouma_core::entry::{EntryKind, FileTypeFilter};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Column};
 use iced::{Color, Element, Length};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 pub fn view<'a>(
     current_path: &'a Path,
     closed_folders: &'a HashSet<PathBuf>,
+    expanded_folders: &'a HashSet<PathBuf>,
     search_text: &'a str,
     selected_type_filter: FileTypeFilter,
 ) -> Element<'a, Message> {
@@ -21,7 +22,7 @@ pub fn view<'a>(
         .size(28)
         .color(theme::ACCENT);
 
-    let subtitle = text("Interactive System Mind Map — Folders marked 'Closed' are pruned from search")
+    let subtitle = text("Interactive System Mind Map — Expand folders to explore, mark 'Closed' to prune from search")
         .size(12)
         .color(theme::TEXT_MUTED);
 
@@ -38,7 +39,7 @@ pub fn view<'a>(
         .on_submit(Message::SearchSubmit)
         .size(14)
         .padding([8, 12])
-        .width(400);
+        .width(420);
 
     let search_box = row![type_selector, search_input]
         .spacing(8)
@@ -78,27 +79,28 @@ pub fn view<'a>(
     .spacing(12)
     .align_x(iced::Alignment::Center);
 
-    // ── 2. Mind Map Nodes ─────────────────────────────────────────
-    // Build root node & subnodes based on current_path or C:\
-    let root_path = current_path.ancestors().last().unwrap_or(current_path);
-    let root_is_closed = closed_folders.contains(root_path);
+    // ── 2. Mind Map Tree Canvas ────────────────────────────────────
+    let root_path_buf = current_path
+        .ancestors()
+        .last()
+        .unwrap_or(current_path)
+        .to_path_buf();
 
-    let root_card = root_node_card(root_path, root_is_closed, closed_folders.len());
+    let root_is_closed = closed_folders.contains(&root_path_buf);
+    let root_card = root_node_card(root_path_buf, root_is_closed, closed_folders.len());
 
-    // Top-level subfolders under root / home
     let default_nodes = get_system_nodes(current_path);
-    let mut nodes_column = column![].spacing(8);
+    let mut tree_column: Column<'a, Message> = Column::new().spacing(6);
 
     for node_path in default_nodes {
-        let is_closed = closed_folders.contains(&node_path);
-        nodes_column = nodes_column.push(node_card(&node_path, is_closed));
+        tree_column = tree_column.push(render_tree_node(node_path, closed_folders, expanded_folders, 0));
     }
 
     let map_canvas = column![
         root_card,
         text("│").size(16).color(theme::BORDER),
         text("▼").size(12).color(theme::ACCENT),
-        nodes_column,
+        tree_column,
     ]
     .spacing(8)
     .align_x(iced::Alignment::Center);
@@ -119,7 +121,66 @@ pub fn view<'a>(
         .into()
 }
 
-fn root_node_card(root_path: &Path, is_closed: bool, pruned_count: usize) -> Element<'static, Message> {
+/// Recursively renders a node card and any expanded children.
+/// Uses owned `PathBuf` to avoid borrow-escaping-scope issues.
+fn render_tree_node<'a>(
+    path: PathBuf,
+    closed_folders: &'a HashSet<PathBuf>,
+    expanded_folders: &'a HashSet<PathBuf>,
+    depth: usize,
+) -> Element<'a, Message> {
+    let is_closed = closed_folders.contains(&path);
+    let is_expanded = expanded_folders.contains(&path);
+
+    let mut col: Column<'a, Message> = Column::new().spacing(4);
+    col = col.push(node_card(path.clone(), is_closed, is_expanded, depth));
+
+    if is_expanded && !is_closed {
+        if let Ok(entries) = bouma_filesystem::read_directory(&path) {
+            let subdirs: Vec<PathBuf> = entries
+                .into_iter()
+                .filter(|e| {
+                    e.kind == EntryKind::Directory
+                        && (!e.hidden || path.components().count() <= 3)
+                })
+                .map(|e| e.path)
+                .collect();
+
+            let mut sub_col: Column<'a, Message> = Column::new().spacing(4);
+
+            if subdirs.is_empty() {
+                let left_pad = 12.0 + ((depth + 1) * 20) as f32;
+                sub_col = sub_col.push(
+                    container(
+                        text("  (No subdirectories)")
+                            .size(11)
+                            .color(theme::TEXT_MUTED),
+                    )
+                    .padding(iced::Padding {
+                        top: 2.0,
+                        right: 0.0,
+                        bottom: 2.0,
+                        left: left_pad,
+                    }),
+                );
+            } else {
+                for dir_path in subdirs.into_iter().take(15) {
+                    sub_col = sub_col.push(render_tree_node(
+                        dir_path,
+                        closed_folders,
+                        expanded_folders,
+                        depth + 1,
+                    ));
+                }
+            }
+            col = col.push(sub_col);
+        }
+    }
+
+    col.into()
+}
+
+fn root_node_card(root_path: PathBuf, is_closed: bool, pruned_count: usize) -> Element<'static, Message> {
     let name = root_path.to_string_lossy().into_owned();
     let status_label = if is_closed { "PRUNED" } else { "ACTIVE ROOT" };
     let status_color = if is_closed {
@@ -163,12 +224,36 @@ fn root_node_card(root_path: &Path, is_closed: bool, pruned_count: usize) -> Ele
     .into()
 }
 
-fn node_card(path: &Path, is_closed: bool) -> Element<'static, Message> {
-    let path_buf = path.to_path_buf();
+fn node_card(path: PathBuf, is_closed: bool, is_expanded: bool, depth: usize) -> Element<'static, Message> {
     let folder_name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned());
+
+    let toggle_expand_path = path.clone();
+    let toggle_close_path = path.clone();
+    let open_dir_path = path.clone();
+
+    let expand_label = if is_expanded { "▼ " } else { "▶ " };
+    let expand_btn = button(text(expand_label).size(12).color(theme::ACCENT))
+        .on_press(Message::ToggleFolderExpanded(toggle_expand_path))
+        .padding([4, 6])
+        .style(|_theme, status| {
+            let bg = match status {
+                button::Status::Hovered => theme::BG_ELEVATED,
+                _ => iced::Color::TRANSPARENT,
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg)),
+                text_color: theme::ACCENT,
+                border: iced::Border {
+                    color: iced::Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
 
     let (status_text, status_color, btn_label, icon) = if is_closed {
         ("CLOSED (PRUNED FROM SEARCH)", Color { r: 0.90, g: 0.35, b: 0.35, a: 1.0 }, "🔓 Open & Search", "🔒")
@@ -177,7 +262,7 @@ fn node_card(path: &Path, is_closed: bool) -> Element<'static, Message> {
     };
 
     let toggle_btn = button(text(btn_label).size(11))
-        .on_press(Message::ToggleFolderClosed(path_buf.clone()))
+        .on_press(Message::ToggleFolderClosed(toggle_close_path))
         .padding([4, 10])
         .style(move |_theme, status| {
             let bg = match status {
@@ -197,7 +282,7 @@ fn node_card(path: &Path, is_closed: bool) -> Element<'static, Message> {
         });
 
     let open_btn = button(text("📂 Browse").size(11))
-        .on_press(Message::OpenDirectory(path_buf))
+        .on_press(Message::OpenDirectory(open_dir_path))
         .padding([4, 10])
         .style(|_theme, status| {
             let bg = match status {
@@ -216,25 +301,37 @@ fn node_card(path: &Path, is_closed: bool) -> Element<'static, Message> {
             }
         });
 
+    let left_padding = 12.0 + (depth * 24) as f32;
+
     container(
         row![
+            expand_btn,
             text(icon).size(16),
             column![
                 text(folder_name).size(13).color(theme::TEXT_PRIMARY),
                 text(status_text).size(10).color(status_color),
             ]
             .spacing(2)
-            .width(Length::Fixed(220.0)),
+            .width(Length::Fixed(200.0)),
             row![toggle_btn, open_btn].spacing(8),
         ]
-        .spacing(12)
+        .spacing(8)
         .align_y(iced::Alignment::Center),
     )
-    .padding([8, 16])
+    .padding(iced::Padding {
+        top: 6.0,
+        right: 12.0,
+        bottom: 6.0,
+        left: left_padding,
+    })
     .style(move |_theme| container::Style {
         background: Some(iced::Background::Color(theme::BG_SURFACE)),
         border: iced::Border {
-            color: if is_closed { Color { r: 0.40, g: 0.20, b: 0.20, a: 1.0 } } else { theme::BORDER },
+            color: if is_closed {
+                Color { r: 0.40, g: 0.20, b: 0.20, a: 1.0 }
+            } else {
+                theme::BORDER
+            },
             width: 1.0,
             radius: 6.0.into(),
         },

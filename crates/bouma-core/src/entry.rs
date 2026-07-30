@@ -49,17 +49,17 @@ impl FileTypeFilter {
 
     pub fn label(&self) -> &'static str {
         match self {
-            FileTypeFilter::All => "All Types",
-            FileTypeFilter::Folders => "Folders",
-            FileTypeFilter::Documents => "Documents",
-            FileTypeFilter::Images => "Images",
-            FileTypeFilter::Audio => "Audio",
-            FileTypeFilter::Video => "Video",
-            FileTypeFilter::Archives => "Archives",
-            FileTypeFilter::Code => "Code",
-            FileTypeFilter::Executables => "Executables",
-            FileTypeFilter::Spreadsheets => "Spreadsheets",
-            FileTypeFilter::Presentations => "Presentations",
+            FileTypeFilter::All => "All Types (*)",
+            FileTypeFilter::Folders => "Folders (/)",
+            FileTypeFilter::Documents => "Documents (.pdf, .doc, .txt, .md)",
+            FileTypeFilter::Images => "Images (.png, .jpg, .svg, .gif)",
+            FileTypeFilter::Audio => "Audio (.mp3, .wav, .flac, .ogg)",
+            FileTypeFilter::Video => "Video (.mp4, .mkv, .avi, .webm)",
+            FileTypeFilter::Archives => "Archives (.zip, .rar, .7z, .tar)",
+            FileTypeFilter::Code => "Code (.rs, .py, .js, .ts, .c)",
+            FileTypeFilter::Executables => "Executables (.exe, .msi, .bat)",
+            FileTypeFilter::Spreadsheets => "Spreadsheets (.xlsx, .csv)",
+            FileTypeFilter::Presentations => "Presentations (.pptx, .key)",
         }
     }
 

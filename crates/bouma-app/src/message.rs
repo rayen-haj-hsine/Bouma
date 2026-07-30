@@ -98,6 +98,9 @@ pub enum Message {
     /// Toggle whether a directory node is closed (pruned from search).
     ToggleFolderClosed(PathBuf),
 
+    /// Toggle whether a directory node is expanded in the Mind Map tree.
+    ToggleFolderExpanded(PathBuf),
+
     /// Toggle or set active view mode.
     SetViewMode(ViewMode),
 

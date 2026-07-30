@@ -80,6 +80,9 @@ pub struct Bouma {
 
     /// Folders toggled as "Closed" (pruned from recursive search).
     closed_folders: HashSet<PathBuf>,
+
+    /// Folders expanded in the Mind Map tree view.
+    expanded_folders: HashSet<PathBuf>,
 }
 
 impl Bouma {
@@ -109,6 +112,7 @@ impl Bouma {
             search_stats: None,
             view_mode: ViewMode::MindMap,
             closed_folders: HashSet::new(),
+            expanded_folders: HashSet::new(),
             settings,
         };
 
@@ -331,6 +335,15 @@ impl Bouma {
                 Task::none()
             }
 
+            Message::ToggleFolderExpanded(path) => {
+                if self.expanded_folders.contains(&path) {
+                    self.expanded_folders.remove(&path);
+                } else {
+                    self.expanded_folders.insert(path);
+                }
+                Task::none()
+            }
+
             // ── Sidebar ─────────────────────────────────────────
             Message::SidebarNavigate(path) => {
                 self.view_mode = ViewMode::ListView;
@@ -470,6 +483,7 @@ impl Bouma {
             views::mind_map::view(
                 &self.current_path,
                 &self.closed_folders,
+                &self.expanded_folders,
                 &self.search_text,
                 self.type_filter,
             )
