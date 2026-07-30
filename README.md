@@ -1,81 +1,78 @@
-# 🦉 Bouma
+# 🌲 Bouma
 
-**A minimal, fast, offline-first file manager for Windows.**
-
-> *Bouma* — see your files clearly, nothing more.
-
-[![CI](https://github.com/rayen/bouma/actions/workflows/ci.yml/badge.svg)](https://github.com/rayen/bouma/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+**Bouma** is a high-performance, offline-first, modern file navigation and search system built with Rust and [Iced](https://github.com/iced-rs/iced). Designed as a lightweight, intelligent alternative to traditional desktop file explorers, Bouma prioritizes speed, clarity, and visual system layout.
 
 ---
 
-## Philosophy
+## ✨ Features
 
-- **Minimal** — No bloat. Every feature earns its place.
-- **Snappy** — Folders open instantly. No spinners, no waiting.
-- **Accurate** — What you see is what's on disk. Always.
-- **Offline-first** — Zero network connections. Zero telemetry. Zero cloud.
-- **Transparent** — You always know what Bouma is doing and why.
+- **🗺️ Interactive System Mind Map**: Visualizes your drive hierarchy as a dynamic, tree-structured mind map starting from drive root (`C:/`).
+- **🌳 Tree Expansion & Branch Pruning**:
+  - Expand subfolders directly within the Mind Map view.
+  - Mark heavy or irrelevant folders as **Closed** to prune them entirely from recursive searches.
+- **⚡ High-Speed Parallel Search**:
+  - Multi-threaded disk traversal using `jwalk` and `Rayon`.
+  - Manual execution on `Enter` to prevent unnecessary IO churn.
+- **🎯 Smart Categorization & Relevance Tiering**:
+  - Categorizes search results into **Exact**, **Prefix**, **Word**, and **Partial** tiers.
+  - File extension labels (e.g., `Documents (.pdf, .doc, .txt)`).
+  - Exact file & extension matching (e.g. `id.txt`).
+- **🔍 Transparency & Diagnostics Panel**: Real-time feedback showing items scanned, active search status (`⟳ Searching…`), traversal timing, and tier distribution.
 
-## Features (MVP)
+---
 
-- ⚡ Fast file browsing with parallel directory reading
-- 📁 File operations (copy, move, delete, rename) with progress
-- 🔍 Fast local search (filename, extension, date filtering)
-- 🔬 Transparency panel — see operation speed, diagnostics, ETA
-- 🌙 Dark mode UI
-- 🔒 Fully offline — no network, no telemetry, no external services
-- 🦀 Built entirely in Rust
+## 🛠️ Architecture
 
-## Architecture
+Bouma is structured as a modular Rust workspace:
 
-Bouma is organized as a Cargo workspace with clean separation of concerns:
-
+```text
+Bouma/
+├── crates/
+│   ├── bouma-app/         # GUI implementation using Iced (Elm architecture)
+│   ├── bouma-core/        # Domain entities, sorting algorithms, file types
+│   ├── bouma-filesystem/  # Multi-threaded filesystem walker & operations
+│   ├── bouma-search/      # Search query parser & relevance tiering engine
+│   └── bouma-cache/       # User settings & navigation history tracking
 ```
-crates/
-├── bouma-app          # Iced GUI application
-├── bouma-core         # Domain types, traits, business logic
-├── bouma-filesystem   # Directory reading, file operations
-├── bouma-search       # Filename search engine
-└── bouma-cache        # Settings, history, metadata cache
-```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+---
 
-## Building
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (stable, latest)
-- Windows 10 or later
+- [Rust](https://www.rust-lang.org/tools/install) (2021 edition or newer)
+- Cargo
 
-### Build & Run
+### Installation & Execution
+
+Clone the repository and run via Cargo:
 
 ```bash
-# Debug build
-cargo run -p bouma-app
-
-# Release build (optimized)
-cargo build --release
+git clone https://github.com/rayen-haj-hsine/Bouma.git
+cd Bouma
+cargo run --bin bouma --release
 ```
 
-### Development
+### Running Tests
+
+Run the full workspace unit and integration test suite:
 
 ```bash
-# Run tests
 cargo test --all
-
-# Check formatting
-cargo fmt --all -- --check
-
-# Run linter
-cargo clippy --all-targets -- -D warnings
 ```
 
-## Roadmap
+---
 
-See [ROADMAP.md](ROADMAP.md) for the full development plan.
+## ⌨️ Hotkeys & Controls
 
-## License
+- **`Enter`**: Run search query.
+- **`Esc` / `Clear (✕)`**: Clear current search text and filter while preserving active directory.
+- **`🔒 Close & Prune`**: Prune directory from recursive search traversal.
+- **`▶` / `▼`**: Expand or collapse subfolder branches in Mind Map view.
 
-[MIT](LICENSE)
+---
+
+## 📄 License
+
+Dual-licensed under MIT or Apache 2.0.
