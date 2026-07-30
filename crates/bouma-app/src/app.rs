@@ -256,15 +256,23 @@ impl Bouma {
                     self.active_search = None;
                     self.search_groups = None;
                     self.search_stats = None;
+                    // If we were in list view only because of search, go back to map
+                    if self.view_mode == ViewMode::ListView {
+                        self.view_mode = ViewMode::MindMap;
+                    }
                     self.refresh_display();
                     Task::none()
                 } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
                     self.active_search = Some(query);
-                    self.view_mode = ViewMode::ListView; // Switch to list view on search
-                    self.refresh_display();
-
+                    // Don't switch view mode or refresh display on every keystroke.
+                    // Just schedule a debounced recursive scan.
+                    // The delay is generous so fast typing only fires ONE scan.
                     let path_depth = self.current_path.components().count();
-                    let delay_ms: u64 = if path_depth <= 2 { 350 } else { 200 };
+                    let delay_ms: u64 = match path_depth {
+                        0 | 1 | 2 => 750, // very wide scan (root / drive) — wait longest
+                        3 | 4     => 600,
+                        _         => 500,
+                    };
                     self.search_generation += 1;
                     let gen = self.search_generation;
                     Task::perform(
@@ -281,8 +289,14 @@ impl Bouma {
             }
 
             Message::SearchDebounced(gen) => {
+                // Only the latest generation's timer should fire the scan.
                 if gen == self.search_generation {
-                    return self.trigger_recursive_search();
+                    if let Ok(query) = SearchQuery::parse(&self.search_text) {
+                        self.active_search = Some(query);
+                        self.view_mode = ViewMode::ListView;
+                        self.refresh_display();
+                        return self.trigger_recursive_search();
+                    }
                 }
                 Task::none()
             }
@@ -292,6 +306,9 @@ impl Bouma {
                     if let Ok(query) = SearchQuery::parse(&self.search_text) {
                         self.active_search = Some(query);
                         self.view_mode = ViewMode::ListView;
+                        self.refresh_display();
+                        // Cancel pending debounce by advancing the generation
+                        self.search_generation += 1;
                         return self.trigger_recursive_search();
                     }
                 }
