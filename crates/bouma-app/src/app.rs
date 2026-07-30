@@ -13,7 +13,7 @@ use iced::widget::{column, container, row};
 use iced::{Element, Length, Task, Theme};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// The root application state.
 pub struct Bouma {
@@ -49,10 +49,6 @@ pub struct Bouma {
 
     /// Search bar text.
     search_text: String,
-
-    /// Monotonically increasing counter — incremented on every keystroke.
-    /// `SearchDebounced(gen)` messages with a stale `gen` are silently dropped.
-    search_generation: u64,
 
     /// Selected file type filter (All, Folders, Documents, Images, etc.).
     type_filter: FileTypeFilter,
@@ -102,7 +98,6 @@ impl Bouma {
             sort_field: settings.sort_field,
             sort_order: settings.sort_order,
             search_text: String::new(),
-            search_generation: 0,
             type_filter: FileTypeFilter::All,
             active_search: None,
             current_operation: None,
@@ -251,52 +246,17 @@ impl Bouma {
 
             // ── Search & Filter ─────────────────────────────────
             Message::SearchInputChanged(text) => {
+                // Just store the text — no auto search, no debounce.
+                // Search only runs when the user presses Enter (SearchSubmit).
                 self.search_text = text;
                 if self.search_text.is_empty() {
                     self.active_search = None;
                     self.search_groups = None;
                     self.search_stats = None;
-                    // If we were in list view only because of search, go back to map
                     if self.view_mode == ViewMode::ListView {
                         self.view_mode = ViewMode::MindMap;
                     }
                     self.refresh_display();
-                    Task::none()
-                } else if let Ok(query) = SearchQuery::parse(&self.search_text) {
-                    self.active_search = Some(query);
-                    // Don't switch view mode or refresh display on every keystroke.
-                    // Just schedule a debounced recursive scan.
-                    // The delay is generous so fast typing only fires ONE scan.
-                    let path_depth = self.current_path.components().count();
-                    let delay_ms: u64 = match path_depth {
-                        0 | 1 | 2 => 750, // very wide scan (root / drive) — wait longest
-                        3 | 4     => 600,
-                        _         => 500,
-                    };
-                    self.search_generation += 1;
-                    let gen = self.search_generation;
-                    Task::perform(
-                        async move {
-                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                            gen
-                        },
-                        Message::SearchDebounced,
-                    )
-                } else {
-                    self.refresh_display();
-                    Task::none()
-                }
-            }
-
-            Message::SearchDebounced(gen) => {
-                // Only the latest generation's timer should fire the scan.
-                if gen == self.search_generation {
-                    if let Ok(query) = SearchQuery::parse(&self.search_text) {
-                        self.active_search = Some(query);
-                        self.view_mode = ViewMode::ListView;
-                        self.refresh_display();
-                        return self.trigger_recursive_search();
-                    }
                 }
                 Task::none()
             }
@@ -307,8 +267,6 @@ impl Bouma {
                         self.active_search = Some(query);
                         self.view_mode = ViewMode::ListView;
                         self.refresh_display();
-                        // Cancel pending debounce by advancing the generation
-                        self.search_generation += 1;
                         return self.trigger_recursive_search();
                     }
                 }
@@ -320,6 +278,9 @@ impl Bouma {
                 self.active_search = None;
                 self.search_groups = None;
                 self.search_stats = None;
+                if self.view_mode == ViewMode::ListView {
+                    self.view_mode = ViewMode::MindMap;
+                }
                 self.refresh_display();
                 Task::none()
             }
