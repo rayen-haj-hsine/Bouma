@@ -483,6 +483,7 @@ impl Bouma {
         };
 
         let transparency = views::transparency_panel::view(
+            self.is_loading,
             self.current_operation.as_ref(),
             self.current_diagnostics.as_ref(),
             self.search_stats.as_ref(),

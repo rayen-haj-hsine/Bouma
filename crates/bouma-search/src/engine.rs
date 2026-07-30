@@ -100,7 +100,8 @@ pub fn search(
 /// Computes a relevance score for a substring query against a `FileEntry`.
 ///
 /// Lower score = better match. Scores files against their **stem** (filename without
-/// extension) so that `id.txt` scores 0 for "id" and `video` scores 3.
+/// extension) so that `id.txt` scores 0 for query "id". When the query *includes* a dot
+/// (e.g. "id.txt"), we also match against the full filename so it still scores 0.
 fn relevance_score(entry: &FileEntry, query: &str) -> u8 {
     // Use the file stem (no extension) as the primary match target.
     let stem = entry
@@ -110,15 +111,25 @@ fn relevance_score(entry: &FileEntry, query: &str) -> u8 {
         .unwrap_or("")
         .to_lowercase();
 
+    // Full filename including extension (e.g. "id.txt").
+    let full_name = entry
+        .path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
     let q = query; // already lowercase from QueryMatcher::Substring
 
-    // Tier 0: stem is exactly the query ("id" == "id")
-    if stem == q {
+    // Tier 0: stem exactly equals query ("id" == "id")
+    //      OR full filename exactly equals query ("id.txt" == "id.txt")
+    if stem == q || full_name == q {
         return 0;
     }
 
     // Tier 1: stem starts with the query ("identity", "id_card")
-    if stem.starts_with(q) {
+    //      OR full filename starts with the query ("id.txt" for query "id.")
+    if stem.starts_with(q) || full_name.starts_with(q) {
         return 1;
     }
 

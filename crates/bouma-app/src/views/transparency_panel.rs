@@ -10,20 +10,37 @@ use iced::{Color, Element, Length};
 /// Renders the Transparency Panel.
 ///
 /// Shows one or more of:
+/// - "Searching…" indicator while a recursive scan is in flight
 /// - Active file-operation progress bar + ETA
 /// - Folder load timing diagnostics
 /// - Search scan statistics (query, tier breakdown, depth, duration)
 pub fn view<'a>(
+    is_loading: bool,
     progress: Option<&OperationProgress>,
     diagnostics: Option<&OperationDiagnostics>,
     search_stats: Option<&SearchStats>,
 ) -> Element<'a, Message> {
-    let has_content = progress.is_some() || diagnostics.is_some() || search_stats.is_some();
+    let has_content = is_loading || progress.is_some() || diagnostics.is_some() || search_stats.is_some();
     if !has_content {
         return container(column![]).into();
     }
 
     let mut panel = column![].spacing(6);
+
+    // ── Searching indicator ─────────────────────────────────────
+    if is_loading {
+        panel = panel.push(
+            row![
+                text("⟳ ").size(13).color(theme::ACCENT),
+                text("Searching…").size(12).color(theme::ACCENT),
+                text("  scanning files, please wait")
+                    .size(11)
+                    .color(theme::TEXT_MUTED),
+            ]
+            .spacing(4)
+            .align_y(iced::Alignment::Center),
+        );
+    }
 
     // ── Active file-operation progress ──────────────────────────
     if let Some(prog) = progress {
