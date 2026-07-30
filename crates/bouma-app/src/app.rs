@@ -135,6 +135,12 @@ impl Bouma {
         match message {
             // ── Navigation ──────────────────────────────────────
             Message::OpenDirectory(path) => {
+                // Clear search state when opening a directory so we view the target folder normally
+                self.search_text.clear();
+                self.active_search = None;
+                self.search_groups = None;
+                self.search_stats = None;
+                self.type_filter = FileTypeFilter::All;
                 self.view_mode = ViewMode::ListView;
                 self.navigate_to(path)
             }
@@ -142,6 +148,11 @@ impl Bouma {
             Message::GoUp => {
                 if let Some(parent) = self.current_path.parent() {
                     let parent = parent.to_path_buf();
+                    self.search_text.clear();
+                    self.active_search = None;
+                    self.search_groups = None;
+                    self.search_stats = None;
+                    self.type_filter = FileTypeFilter::All;
                     self.navigate_to(parent)
                 } else {
                     Task::none()
@@ -278,9 +289,7 @@ impl Bouma {
                 self.active_search = None;
                 self.search_groups = None;
                 self.search_stats = None;
-                if self.view_mode == ViewMode::ListView {
-                    self.view_mode = ViewMode::MindMap;
-                }
+                self.type_filter = FileTypeFilter::All;
                 self.refresh_display();
                 Task::none()
             }
